@@ -19,7 +19,8 @@ import itertools
 import numba 
 from collections import OrderedDict
 from numpy import array, sqrt, max, zeros_like, argmin,ones, stack, rot90
-from scipy.signal import convolve2d, gaussian
+from scipy.signal import convolve2d
+from scipy.signal.windows import gaussian
 from numba import jit
 from collections import deque
 from sys import maxsize

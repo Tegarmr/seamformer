@@ -1,5 +1,5 @@
 '''
-Stage2 : SeamFormer Version
+Stage2 : SeamFormer Version (FIXED FOR MODERN PYTHON/NUMPY/NUMBA)
 '''
 
 import sys
@@ -20,7 +20,7 @@ import numba
 from collections import OrderedDict
 from numpy import array, sqrt, max, zeros_like, argmin,ones, stack, rot90
 from scipy.signal import convolve2d
-from scipy.signal.windows import gaussian
+from scipy.signal.windows import gaussian  # FIX 1: Pemindahan direktori fungsi gaussian
 from numba import jit
 from collections import deque
 from sys import maxsize
@@ -131,8 +131,6 @@ def processStats(image,labels,stats,centroids,areaThreshold=70,vis=False):
         # cv2_imshow(image)
 
   return netstats
-
-# newstats=processStats(cImg,labels,stats,centroids)
 
 # Pseudo Scribbles
 def generatePseudoScribble(scribble, gap, isUp):
@@ -300,8 +298,13 @@ def generatePseudoScribble(scribble, gap, isUp):
 
 @jit
 def compute_optimal_seam(energy, region):
-    energy[np.where(region==0)]=255
+    # FIX 3: Mengganti np.where dengan perulangan dasar agar Numba bisa melakukan kompilasi C
     rows, cols = energy.shape
+    for r in range(rows):
+        for c in range(cols):
+            if region[r, c] == 0:
+                energy[r, c] = 255
+                
     infinity = maxsize / 10
     dp = energy.copy()
 
@@ -444,7 +447,7 @@ def crop(original_image: Image, energy_image: Image, points: list, regions: list
 def avgHeight(scribble): 
   scribble = np.asarray(scribble,dtype=np.float32).reshape(-1,2)
   avgY = np.mean(scribble,axis=0)
-  val = np.int(np.mean(avgY))
+  val = int(np.mean(avgY)) # FIX 2: Ganti np.int ke int bawaan python
   return val
 
 def sortScribblesGlobal(scribbles):
@@ -520,7 +523,7 @@ def generateSeams(imgSource,binImage,scribbleList, showImg=False,save=True,omega
         count+=1
 
     gap =  getInterlineGap(scribbleList)
-    head = np.int(gap/2)
+    head = int(gap/2) # FIX 2: Ganti np.int ke int bawaan python
 
     regions=[]
     regions2=[]

@@ -305,7 +305,7 @@ def draw_line_through_midpoints_of_obb(polygon_points):
 
     # Get the four corner points of the OBB
     box_points = cv2.boxPoints(rect)
-    box_points = np.int0(box_points).tolist()
+    box_points = np.intp(box_points).tolist()
 
     # Sort the points to ensure they are arranged from top-left to bottom-right
     x_coords, y_coords = zip(*box_points)

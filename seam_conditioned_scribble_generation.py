@@ -1,5 +1,6 @@
 '''
-Stage2 : SeamFormer Version (FIXED FOR MODERN PYTHON/NUMPY/NUMBA)
+Stage2 : SeamFormer Version
+Fully compatible with modern Python 3.10+, NumPy 2.x, Numba 0.60+
 '''
 
 import sys
@@ -7,21 +8,17 @@ import os
 import cv2
 import copy
 import json
-import random
+import random as _random  # Avoid shadowing by numpy.random
 from json import JSONEncoder
 import numpy as np
-from skimage.filters import *
-from numpy import random
 from scipy.spatial import distance
 from PIL import Image
 
 import itertools
-import numba 
 from collections import OrderedDict
-from numpy import array, sqrt, max, zeros_like, argmin,ones, stack, rot90
+from numpy import array, sqrt, zeros_like, argmin, ones, stack, rot90
 from scipy.signal import convolve2d
-from scipy.signal.windows import gaussian  # FIX 1: Pemindahan direktori fungsi gaussian
-from numba import jit
+from scipy.signal.windows import gaussian
 from collections import deque
 from sys import maxsize
 
@@ -34,9 +31,9 @@ class NumpyEncoder(json.JSONEncoder):
         return json.JSONEncoder.default(self, obj)
 
 
-import argparse 
+import argparse
 import json
-# Argument Parser 
+# Argument Parser
 def addArgs():
     # Required to override these params
     parser = argparse.ArgumentParser(description="SeamFormer:Stage-II Independant Mode")
@@ -247,8 +244,8 @@ def polyGeneration(img,upperSeam,lowerSeam,scribble=None,display=False,limit=100
     lastPoint = np.asarray(scribble[-1]).tolist()
 
 
-    xLimit = np.maximum(lastPoint[0],firstPoint[0])+limit 
-    yLimit = np.maximum(lastPoint[1],firstPoint[1])+limit 
+    xLimit = np.maximum(lastPoint[0],firstPoint[0])+limit
+    yLimit = np.maximum(lastPoint[1],firstPoint[1])+limit
 
 
     upperSeam = [ point for point in upperSeam if(point[0]< xLimit and point[1]<yLimit) ]
@@ -265,7 +262,7 @@ def polyGeneration(img,upperSeam,lowerSeam,scribble=None,display=False,limit=100
     if(display and img is not None):
         canvas = copy.deepcopy(img)
         canvas = cv2.drawContours(canvas,[region],0,(255,0,0),2)
-    
+
     return(region)
 
 
@@ -277,34 +274,29 @@ def apply_sobel(image: array):
     grad_y = convolve2d(
         blurred, sobel_kernels['y'], mode='same', boundary='symm')
     grad = sqrt(grad_x * grad_x + grad_y * grad_y)
-    normalised_grad = grad * (255.0 / max(grad))
+    grad_max = np.max(grad)
+    if grad_max == 0:
+        grad_max = 1  # Avoid division by zero
+    normalised_grad = grad * (255.0 / grad_max)
     return normalised_grad
 
 
-@jit
-def is_in_image(position: tuple, rows: int, cols: int) -> bool:
+def is_in_image(position, rows, cols):
+    """Check if a position (row, col) is within image bounds."""
     row, col = position
     return row >= 0 and col >= 0 and row < rows and col < cols
 
 
-def generatePseudoScribble(scribble, gap, isUp):
-  psuedoScribble=[]
-  if (isUp):
-    gap = -gap
-  for i in range(len(scribble)):
-      psuedoScribble.append([scribble[i][0],scribble[i][1]+gap])
-  return psuedoScribble
-
-
-@jit
 def compute_optimal_seam(energy, region):
-    # FIX 3: Mengganti np.where dengan perulangan dasar agar Numba bisa melakukan kompilasi C
+    """Compute optimal seam using dynamic programming (pure Python, no numba)."""
     rows, cols = energy.shape
+
+    # Mask out regions outside the region of interest
     for r in range(rows):
         for c in range(cols):
             if region[r, c] == 0:
                 energy[r, c] = 255
-                
+
     infinity = maxsize / 10
     dp = energy.copy()
 
@@ -342,8 +334,8 @@ def compute_optimal_seam(energy, region):
 
 """carver.py"""
 
-@jit
 def trace_seam(original_image, energy_image, seam_start, next_seam_position, seam, endSeam):
+    """Trace a seam from start position (pure Python, no numba)."""
     seam_pos = seam_start
     while True:
         row, col = seam_pos
@@ -368,14 +360,14 @@ def get_energy_image_with_mask(image_to_crop: Image, mask) -> Image:
     grayscale_to_crop = image_to_crop.convert('1')
     grayscale_to_crop_bytes = array(grayscale_to_crop)
     grayscale_to_crop_energy = apply_sobel(array(grayscale_to_crop_bytes))
-    grayscale_to_crop_energy = np.int32(0.8*grayscale_to_crop_energy + 0.2*np.float32(mask))
+    grayscale_to_crop_energy = np.int32(0.8*grayscale_to_crop_energy + 0.2*np.asarray(mask, dtype=np.float32))
     return Image.fromarray(grayscale_to_crop_energy)
 
 def get_energy_image_with_two_masks(image_to_crop: Image, mask1, mask2) -> Image:
     grayscale_to_crop = image_to_crop.convert('1')
     grayscale_to_crop_bytes = array(grayscale_to_crop)
     grayscale_to_crop_energy = apply_sobel(array(grayscale_to_crop_bytes))
-    grayscale_to_crop_energy = np.int32(0.6*grayscale_to_crop_energy + 0.4*np.float32(mask1))
+    grayscale_to_crop_energy = np.int32(0.6*grayscale_to_crop_energy + 0.4*np.asarray(mask1, dtype=np.float32))
     grayscale_to_crop_energy[np.where(mask2!=0)]=255
     return Image.fromarray(grayscale_to_crop_energy)
 
@@ -432,7 +424,7 @@ def get_energy_image_with_blur_masks(image_to_crop: Image, mask1, mask2, scribbl
     grayscale_to_crop = image_to_crop.convert('1')
     grayscale_to_crop_bytes = array(grayscale_to_crop)
     grayscale_to_crop_energy = apply_sobel(array(grayscale_to_crop_bytes))
-    grayscale_to_crop_energy = np.int32(0.6*grayscale_to_crop_energy + 0.4*np.float32(mask2))
+    grayscale_to_crop_energy = np.int32(0.6*grayscale_to_crop_energy + 0.4*np.asarray(mask2, dtype=np.float32))
     grayscale_to_crop_energy =markScribbleListGray(grayscale_to_crop_energy,scribbleList)
     return Image.fromarray(grayscale_to_crop_energy)
 
@@ -444,10 +436,10 @@ def crop(original_image: Image, energy_image: Image, points: list, regions: list
     return (marked_original_image, marked_energy_image, seams)
 
 
-def avgHeight(scribble): 
+def avgHeight(scribble):
   scribble = np.asarray(scribble,dtype=np.float32).reshape(-1,2)
   avgY = np.mean(scribble,axis=0)
-  val = int(np.mean(avgY)) # FIX 2: Ganti np.int ke int bawaan python
+  val = int(np.mean(avgY))
   return val
 
 def sortScribblesGlobal(scribbles):
@@ -462,15 +454,15 @@ def sortScribblesGlobal(scribbles):
   return scribbleList
 
 # Get average height
-def avgYHeight(scribble): 
+def avgYHeight(scribble):
   scribble = np.asarray(scribble,dtype=np.float32).reshape(-1,2)
   avgY = np.mean(scribble,axis=0)
   val = np.mean(avgY)
   return val
 
-# Gap 
+# Gap
 def getInterlineGap(scribbles,BUFFER=10):
-  # sort the scribbles 
+  # sort the scribbles
   scribbles = sortScribblesGlobal(scribbles)
   avgDist = []
   for i,sc in enumerate(scribbles):
@@ -478,8 +470,8 @@ def getInterlineGap(scribbles,BUFFER=10):
       avgDist.append(np.abs(avgYHeight(scribbles[i])-avgYHeight(scribbles[i+1])))
   avgDist = np.asarray(avgDist,np.float32)
   gap = np.median(avgDist) + BUFFER
-  gap = np.int32(gap)
-  return gap 
+  gap = int(gap)
+  return gap
 
 def extremePoints(c):
     c = np.asarray(c).reshape(-1,1,2)
@@ -508,7 +500,7 @@ def generateSeams(imgSource,binImage,scribbleList, showImg=False,save=True,omega
     verdists=[]
     for i in range(1,len(initPoints)):
       verdists.append(abs(initPoints[i][1]-initPoints[i-1][1]))
-     
+
     dists = copy.deepcopy(verdists)
     dists = array(dists, dtype=np.int32)
     meanDist = np.mean(dists)
@@ -523,7 +515,7 @@ def generateSeams(imgSource,binImage,scribbleList, showImg=False,save=True,omega
         count+=1
 
     gap =  getInterlineGap(scribbleList)
-    head = int(gap/2) # FIX 2: Ganti np.int ke int bawaan python
+    head = int(gap/2)
 
     regions=[]
     regions2=[]
@@ -617,11 +609,8 @@ def generateSeams(imgSource,binImage,scribbleList, showImg=False,save=True,omega
 
     # Gaussian Blur
     mask2 = cv2.GaussianBlur( mask1,(5, 11), 0)
-    # print('GAUSSIAN MAP SHAPE : {}'.format(mask2.shape))
-    # cv2_imshow(mask2)
 
     mask2 = markScribbleList(mask2,scribbleList)
-    # print('GAUSSIAN MAP SHAPE : {}'.format(mask2.shape))
     mask2 = cv2.cvtColor(mask2.astype(np.uint8),cv2.COLOR_BGR2GRAY)
 
 
@@ -681,7 +670,7 @@ def generateSeams(imgSource,binImage,scribbleList, showImg=False,save=True,omega
         for i in range(len(seams2)):
             for j in range(len(seams2[i])):
                 seams2[i][j][0], seams2[i][j][1] = img.shape[1]-seams2[i][j][1], img.shape[0]-seams2[i][j][0]
-            
+
     # Results
     fseams = copy.deepcopy(seams)
     revseams = Reverse(seams2)
@@ -708,19 +697,19 @@ def imageTask(img,bimg,scribbes):
             for s in scribbes:
                 # Make it into [[x1,y1],[x2,y2],[x3,y3] ..[xn,yn]] format
                 s = np.asarray(s,dtype=np.int32).reshape((-1,2)).tolist()
-                # Sort it from left to right 
+                # Sort it from left to right
                 s_ = sorted(s, key=lambda point: point[0])
                 scribbles_.append(s_)
-            
+
             # Sort the list of scribbles from top to bottom
             finalScribbles = sorted(scribbles_, key=lambda lst: lst[0][1])
-            # Call for generateSeams function 
+            # Call for generateSeams function
             polygons = generateSeams(img,bimg,finalScribbles,showImg=True)
             return polygons
     else:
       print('StageII:Inputs are invalid,recheck!Exiting!')
-      return [] 
-    
+      return []
+
 def stage2(json_data):
     output_data=[]
     for inst in json_data:
@@ -736,13 +725,13 @@ def stage2(json_data):
 if __name__ == "__main__":
     args = addArgs()
     if args.jsonPath is not None and os.path.exists(args.jsonPath):
-            # Read the json file 
+            # Read the json file
             json_data = None
             with open(args.jsonPath) as f:
                 json_data = json.load(f)
             f.close()
-            # Send it to stage2 function and dump it in the json location 
-            if args.outputjsonPath is not None : 
+            # Send it to stage2 function and dump it in the json location
+            if args.outputjsonPath is not None :
                 out_file = open(args.outputjsonPath, "w")
                 data_final = stage2(json_data)
                 json.dump(data_final, out_file)
